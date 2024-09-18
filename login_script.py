@@ -20,13 +20,15 @@ async def delay_time(ms):
 # 全局浏览器实例
 browser = None
 
-# telegram消息
-message = 'serv00&ct8自动化脚本运行\n'
+# 全局计数器和失败列表
+success_count = 0
+fail_count = 0
+failed_usernames = []
 
 async def login(username, password, panel):
-    global browser
+    global browser, success_count, fail_count, failed_usernames
 
-    page = None  # 确保 page 在任何情况下都被定义
+    page = None
     serviceName = 'ct8' if 'ct8' in panel else 'serv00'
     try:
         if not browser:
@@ -56,10 +58,18 @@ async def login(username, password, panel):
             return logoutButton !== null;
         }''')
 
+        if is_logged_in:
+            success_count += 1
+        else:
+            fail_count += 1
+            failed_usernames.append(f"{serviceName}:{username}")
+
         return is_logged_in
 
     except Exception as e:
         print(f'{serviceName}账号 {username} 登录时出现错误: {e}')
+        fail_count += 1
+        failed_usernames.append(f"{serviceName}:{username}")
         return False
 
     finally:
@@ -67,8 +77,10 @@ async def login(username, password, panel):
             await page.close()
 
 async def main():
-    global message
-    message = 'serv00&ct8自动化脚本运行\n'
+    global success_count, fail_count, failed_usernames
+    success_count = 0
+    fail_count = 0
+    failed_usernames = []
 
     try:
         async with aiofiles.open('accounts.json', mode='r', encoding='utf-8') as f:
@@ -83,25 +95,23 @@ async def main():
         password = account['password']
         panel = account['panel']
 
-        serviceName = 'ct8' if 'ct8' in panel else 'serv00'
-        is_logged_in = await login(username, password, panel)
-
-        if is_logged_in:
-            now_utc = format_to_iso(datetime.utcnow())
-            now_beijing = format_to_iso(datetime.utcnow() + timedelta(hours=8))
-            success_message = f'{serviceName}账号 {username} 于北京时间 {now_beijing}（UTC时间 {now_utc}）登录成功！'
-            message += success_message + '\n'
-            print(success_message)
-        else:
-            message += f'{serviceName}账号 {username} 登录失败，请检查{serviceName}账号和密码是否正确。\n'
-            print(f'{serviceName}账号 {username} 登录失败，请检查{serviceName}账号和密码是否正确。')
+        await login(username, password, panel)
 
         delay = random.randint(1000, 8000)
         await delay_time(delay)
-        
-    message += f'所有{serviceName}账号登录完成！'
-    await send_telegram_message(message)
-    print(f'所有{serviceName}账号登录完成！')
+    
+    # 准备汇总消息
+    now_utc = format_to_iso(datetime.utcnow())
+    now_beijing = format_to_iso(datetime.utcnow() + timedelta(hours=8))
+    summary_message = f"自动化脚本运行汇总 (北京时间 {now_beijing}，UTC时间 {now_utc}):\n"
+    summary_message += f"成功登录: {success_count} 个账号\n"
+    summary_message += f"失败登录: {fail_count} 个账号\n"
+    
+    if failed_usernames:
+        summary_message += "失败的用户名:\n" + "\n".join(failed_usernames)
+    
+    await send_telegram_message(summary_message)
+    print("登录操作完成，汇总信息已发送到Telegram。")
 
 async def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
