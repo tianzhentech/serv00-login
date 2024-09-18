@@ -82,6 +82,9 @@ async def main():
     fail_count = 0
     failed_usernames = []
 
+    # 记录开始时间
+    start_time = datetime.now()
+
     try:
         async with aiofiles.open('accounts.json', mode='r', encoding='utf-8') as f:
             accounts_json = await f.read()
@@ -99,13 +102,17 @@ async def main():
 
         delay = random.randint(1000, 8000)
         await delay_time(delay)
+
+    # 计算总耗时
+    end_time = datetime.now()
+    total_time = end_time - start_time
     
     # 准备汇总消息
-    now_utc = format_to_iso(datetime.utcnow())
     now_beijing = format_to_iso(datetime.utcnow() + timedelta(hours=8))
-    summary_message = f"自动化脚本运行汇总 (北京时间 {now_beijing}，UTC时间 {now_utc}):\n"
+    summary_message = f"自动化脚本运行汇总 (北京时间 {now_beijing}):\n"
     summary_message += f"成功登录: {success_count} 个账号\n"
     summary_message += f"失败登录: {fail_count} 个账号\n"
+    summary_message += f"总耗时: {total_time.total_seconds():.2f} 秒\n"
     
     if failed_usernames:
         summary_message += "失败的用户名:\n" + "\n".join(failed_usernames)
