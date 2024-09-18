@@ -76,6 +76,16 @@ async def login(username, password, panel):
         if page:
             await page.close()
 
+async def process_account(account):
+    username = account['username']
+    password = account['password']
+    panel = account['panel']
+
+    await login(username, password, panel)
+
+    delay = random.randint(1000, 8000)
+    await delay_time(delay)
+
 async def main():
     global success_count, fail_count, failed_usernames
     success_count = 0
@@ -93,15 +103,8 @@ async def main():
         print(f'读取 accounts.json 文件时出错: {e}')
         return
 
-    for account in accounts:
-        username = account['username']
-        password = account['password']
-        panel = account['panel']
-
-        await login(username, password, panel)
-
-        delay = random.randint(1000, 8000)
-        await delay_time(delay)
+    # 使用 asyncio.gather 并发处理所有账号
+    await asyncio.gather(*(process_account(account) for account in accounts))
 
     # 计算总耗时
     end_time = datetime.now()
