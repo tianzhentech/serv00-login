@@ -17,23 +17,17 @@ def format_to_iso(date):
 async def delay_time(ms):
     await asyncio.sleep(ms / 1000)
 
-# 全局浏览器实例
-browser = None
-
 # 全局计数器和失败列表
 success_count = 0
 fail_count = 0
 failed_usernames = []
 
-async def login(username, password, panel):
-    global browser, success_count, fail_count, failed_usernames
+async def login(browser, username, password, panel):
+    global success_count, fail_count, failed_usernames
 
     page = None
     serviceName = 'ct8' if 'ct8' in panel else 'serv00'
     try:
-        if not browser:
-            browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
-
         page = await browser.newPage()
         url = f'https://{panel}/login/?next=/'
         await page.goto(url)
@@ -76,12 +70,12 @@ async def login(username, password, panel):
         if page:
             await page.close()
 
-async def process_account(account):
+async def process_account(browser, account):
     username = account['username']
     password = account['password']
     panel = account['panel']
 
-    await login(username, password, panel)
+    await login(browser, username, password, panel)
 
     delay = random.randint(1000, 8000)
     await delay_time(delay)
@@ -103,8 +97,9 @@ async def main():
         print(f'读取 accounts.json 文件时出错: {e}')
         return
 
-    # 使用 asyncio.gather 并发处理所有账号
-    await asyncio.gather(*(process_account(account) for account in accounts))
+    async with launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox']) as browser:
+        # 使用 asyncio.gather 并发处理所有账号
+        await asyncio.gather(*(process_account(browser, account) for account in accounts))
 
     # 计算总耗时
     end_time = datetime.now()
@@ -143,9 +138,10 @@ async def send_telegram_message(message):
         'Content-Type': 'application/json'
     }
     try:
-        response = requests.post(url, json=payload, headers=headers)
-        if response.status_code != 200:
-            print(f"发送消息到Telegram失败: {response.text}")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers) as response:
+                if response.status != 200:
+                    print(f"发送消息到Telegram失败: {await response.text()}")
     except Exception as e:
         print(f"发送消息到Telegram时出错: {e}")
 
