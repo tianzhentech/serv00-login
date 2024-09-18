@@ -4,12 +4,8 @@ from pyppeteer import launch
 from datetime import datetime, timedelta
 import aiofiles
 import random
-import aiohttp
+import requests
 import os
-import logging
-
-# 设置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 从环境变量中获取 Telegram Bot Token 和 Chat ID
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -21,18 +17,23 @@ def format_to_iso(date):
 async def delay_time(ms):
     await asyncio.sleep(ms / 1000)
 
+# 全局浏览器实例
+browser = None
+
 # 全局计数器和失败列表
 success_count = 0
 fail_count = 0
 failed_usernames = []
 
-async def login(browser, username, password, panel):
-    global success_count, fail_count, failed_usernames
+async def login(username, password, panel):
+    global browser, success_count, fail_count, failed_usernames
 
     page = None
     serviceName = 'ct8' if 'ct8' in panel else 'serv00'
     try:
-        logging.info(f'正在尝试登录 {serviceName}:{username}')
+        if not browser:
+            browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+
         page = await browser.newPage()
         url = f'https://{panel}/login/?next=/'
         await page.goto(url)
@@ -59,16 +60,14 @@ async def login(browser, username, password, panel):
 
         if is_logged_in:
             success_count += 1
-            logging.info(f'{serviceName}:{username} 登录成功')
         else:
             fail_count += 1
             failed_usernames.append(f"{serviceName}:{username}")
-            logging.warning(f'{serviceName}:{username} 登录失败')
 
         return is_logged_in
 
     except Exception as e:
-        logging.error(f'{serviceName}:{username} 登录时出现错误: {e}')
+        print(f'{serviceName}账号 {username} 登录时出现错误: {e}')
         fail_count += 1
         failed_usernames.append(f"{serviceName}:{username}")
         return False
@@ -76,16 +75,6 @@ async def login(browser, username, password, panel):
     finally:
         if page:
             await page.close()
-
-async def process_account(browser, account):
-    username = account['username']
-    password = account['password']
-    panel = account['panel']
-
-    await login(browser, username, password, panel)
-
-    delay = random.randint(1000, 8000)
-    await delay_time(delay)
 
 async def main():
     global success_count, fail_count, failed_usernames
@@ -101,21 +90,18 @@ async def main():
             accounts_json = await f.read()
         accounts = json.loads(accounts_json)
     except Exception as e:
-        logging.error(f'读取 accounts.json 文件时出错: {e}')
+        print(f'读取 accounts.json 文件时出错: {e}')
         return
 
-    try:
-        browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
-        
-        # 使用 asyncio.gather 并发处理所有账号
-        await asyncio.gather(*(process_account(browser, account) for account in accounts))
-    
-    except Exception as e:
-        logging.error(f'处理账号时出现错误: {e}')
-    
-    finally:
-        if browser:
-            await browser.close()
+    for account in accounts:
+        username = account['username']
+        password = account['password']
+        panel = account['panel']
+
+        await login(username, password, panel)
+
+        delay = random.randint(1000, 8000)
+        await delay_time(delay)
 
     # 计算总耗时
     end_time = datetime.now()
@@ -132,7 +118,7 @@ async def main():
         summary_message += "失败的用户名:\n" + "\n".join(failed_usernames)
     
     await send_telegram_message(summary_message)
-    logging.info("登录操作完成，汇总信息已发送到Telegram。")
+    print("登录操作完成，汇总信息已发送到Telegram。")
 
 async def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -154,12 +140,11 @@ async def send_telegram_message(message):
         'Content-Type': 'application/json'
     }
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers) as response:
-                if response.status != 200:
-                    logging.error(f"发送消息到Telegram失败: {await response.text()}")
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code != 200:
+            print(f"发送消息到Telegram失败: {response.text}")
     except Exception as e:
-        logging.error(f"发送消息到Telegram时出错: {e}")
+        print(f"发送消息到Telegram时出错: {e}")
 
 if __name__ == '__main__':
     asyncio.run(main())
